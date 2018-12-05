@@ -403,22 +403,25 @@ class DagBag(BaseDagBag, LoggingMixin):
                         self.file_last_changed[filepath] = file_last_changed_on_disk
 
         for m in mods:
-            for dag in list(m.__dict__.values()):
-                if isinstance(dag, DAG):
-                    if not dag.full_filepath:
-                        dag.full_filepath = filepath
-                        if dag.fileloc != filepath:
-                            dag.fileloc = filepath
-                    try:
-                        dag.is_subdag = False
-                        self.bag_dag(dag, parent_dag=dag, root_dag=dag)
-                        found_dags.append(dag)
-                        found_dags += dag.subdags
-                    except AirflowDagCycleException as cycle_exception:
-                        self.log.exception("Failed to bag_dag: %s", dag.full_filepath)
-                        self.import_errors[dag.full_filepath] = str(cycle_exception)
-                        self.file_last_changed[dag.full_filepath] = \
-                            file_last_changed_on_disk
+            dags = [v for v in m.__dict__.values() if isinstance(v, DAG)]
+            dag_lists = [v for v in m.__dict__.values() if isinstance(v, DagList)]
+            dags += [dag for l in dag_lists for dag in l]
+
+            for dag in dags:
+                if not dag.full_filepath:
+                    dag.full_filepath = filepath
+                    if dag.fileloc != filepath:
+                        dag.fileloc = filepath
+                try:
+                    dag.is_subdag = False
+                    self.bag_dag(dag, parent_dag=dag, root_dag=dag)
+                    found_dags.append(dag)
+                    found_dags += dag.subdags
+                except AirflowDagCycleException as cycle_exception:
+                    self.log.exception("Failed to bag_dag: %s", dag.full_filepath)
+                    self.import_errors[dag.full_filepath] = str(cycle_exception)
+                    self.file_last_changed[dag.full_filepath] = \
+                        file_last_changed_on_disk
 
         self.file_last_changed[filepath] = file_last_changed_on_disk
         return found_dags
@@ -4306,6 +4309,22 @@ class DAG(BaseDag, LoggingMixin):
                 self._test_cycle_helper(visit_map, descendant_id)
 
         visit_map[task_id] = DagBag.CYCLE_DONE
+
+
+class DagList(object):
+    """
+    A wrapper for a list of DAGs
+
+    :param dags: A list of DAGs
+    :type dags: list
+    """
+    def __init__(self, dags):
+        if not all(isinstance(dag, DAG) for dag in dags):
+            raise AirflowException("Non-DAG object detected in DagList")
+        self._dags = dags
+
+    def __iter__(self):
+        return self._dags.__iter__()
 
 
 class Chart(Base):
