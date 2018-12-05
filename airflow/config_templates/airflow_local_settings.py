@@ -17,6 +17,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
+import logging
 import os
 
 from airflow import configuration as conf
@@ -59,12 +60,46 @@ LOG_ID_TEMPLATE = conf.get('elasticsearch', 'ELASTICSEARCH_LOG_ID_TEMPLATE')
 
 END_OF_LOG_MARK = conf.get('elasticsearch', 'ELASTICSEARCH_END_OF_LOG_MARK')
 
+
+class DispatchingFormatter:
+    """Dispatch formatter for logger and its sub logger."""
+    def __init__(self, formatters, default_formatter):
+        self._formatters = formatters
+        self._default_formatter = default_formatter
+
+    def format(self, record):
+        # Search from record's logger up to it's parents:
+        logger = logging.getLogger(record.name)
+        while logger:
+            # Check if suitable formatter for current logger exists:
+            if logger.name in self._formatters:
+                formatter = self._formatters[logger.name]
+                break
+            else:
+                logger = logger.parent
+        else:
+            # If no formatter found, just use default:
+            formatter = self._default_formatter
+
+        return formatter.format(record)
+
+
 DEFAULT_LOGGING_CONFIG = {
     'version': 1,
     'disable_existing_loggers': False,
     'formatters': {
         'airflow': {
             'format': LOG_FORMAT,
+        },
+        'plain': {
+            'format': '%(message)s',
+        },
+        'airflow_task': {
+            '()': DispatchingFormatter,
+            'formatters': {
+                'airflow.task.operators': 'cfg://formatters.airflow',
+            },
+            'default_formatter': 'cfg://formatters.plain',
         },
     },
     'handlers': {
@@ -75,7 +110,7 @@ DEFAULT_LOGGING_CONFIG = {
         },
         'task': {
             'class': 'airflow.utils.log.file_task_handler.FileTaskHandler',
-            'formatter': 'airflow',
+            'formatter': 'airflow_task',
             'base_log_folder': os.path.expanduser(BASE_LOG_FOLDER),
             'filename_template': FILENAME_TEMPLATE,
         },
