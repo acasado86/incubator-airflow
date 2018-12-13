@@ -74,10 +74,11 @@ class FileTaskHandler(logging.Handler):
             jinja_context['try_number'] = try_number
             return self.filename_jinja_template.render(**jinja_context)
 
-        return self.filename_template.format(dag_id=ti.dag_id,
-                                             task_id=ti.task_id,
-                                             execution_date=ti.execution_date.isoformat(),
-                                             try_number=try_number)
+        return self.filename_template.format(
+            dag_id=ti.dag_id,
+            task_id=ti.task_id,
+            execution_date=ti.execution_date.isoformat(timespec='microseconds'),
+            try_number=try_number)
 
     def _read(self, ti, try_number, metadata=None):
         """
